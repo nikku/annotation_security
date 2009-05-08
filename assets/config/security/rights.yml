@@ -1,0 +1,45 @@
+welcome:
+  show: if logged_in
+
+assignment_result:
+  list: if enrolled or responsible
+  show: if owner or responsible
+  edit: if responsible
+
+course_entity:
+  applies_to: course, assignment
+  show: if enrolled or responsible
+  show_details: if responsible
+  edit: if lecturer
+  delete: if may_create
+  create: if lecturer
+
+assignment:
+  list: if may_show
+
+course:
+  add_corrector: if lecturer
+  add_assignment: if may_edit
+  list: if logged_in
+  enroll: if student and not enrolled
+
+student:
+  show_anonymous: if logged_in
+  show_particulars: if self or may_edit
+  edit: if frau_pamperin or administrator
+  create: unless logged_in
+  delete: if may_edit
+
+user:
+  set_as_lecturer: if administrator
+  show_details: if administrator or self
+  show_password: if self
+  create: if administrator
+  delete: if administrator
+  edit: if self or administrator
+  list: if administrator
+
+role:
+  list: if administrator
+  create: if administrator
+  delete: if administrator

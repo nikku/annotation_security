@@ -1,0 +1,33 @@
+== AnnotationSecurity plugin for rails webapplications
+
+This plugin provides a security layer for rails applications. It performs access
+checks based on a behavioural description of controller actions.
+
+== Post installation steps
+
+Please run <tt>rake as:install_plugin</tt> in order to install files in you
+rails app which are neccesary for the AnnotationSecurity plugin to work.
+
+This will install
+* the AnnotationSecurity::Helper in the <tt>app/helpers</tt> folder of your
+  rails-app. It provides some useful methods to create links and query the
+  security layer from views.
+* example configuration files under <tt>config/security</tt>
+* an initializer for the security layer under <tt>config/initializer</tt>
+
+== Where to start
+
+See how to {secure your application}[link:files/vendor/plugins/annotation_security/lib/annotation_security/includes/action_controller_rb.html]
+and how to {setup rights}[link:files/vendor/plugins/annotation_security/lib/annotation_security/manager/right_loader_rb.html]
+and {relations}[link:files/vendor/plugins/annotation_security/lib/annotation_security/manager/relation_loader_rb.html].
+
+Also have a look at the view methods provided by the AnnotationSecurity::Helper
+and at the SecurityContext which is the main entry-point for security related
+stuff in this plugin.
+
+== License
+
+Copyright Nico Rehwaldt, Arian Treffer 2009
+
+You may use, copy and redistribute this library under the same terms as
+{Ruby itself}[http://www.ruby-lang.org/en/LICENSE.txt] or under the MIT license.

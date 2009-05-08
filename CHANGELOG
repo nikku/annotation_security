@@ -1,0 +1,5 @@
+annotation_security plugin - changelog
+----------------------------------------------
+
+v0.1b
+- separated plugin from action_annotation
