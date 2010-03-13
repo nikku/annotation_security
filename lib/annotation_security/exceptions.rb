@@ -1,9 +1,9 @@
 #
-# = libs/security/exceptions.rb
+# = lib/annotation_security/exceptions.rb
 #
-# Provides some Exceptions used within the AnnotationSecurityLayer
+# Provides some Exceptions used within AnnotationSecurity
 
-module AnnotationSecurity # :nodoc:
+module AnnotationSecurity
 
   # Superclass of all security related errors thrown by anno sec
   class SecurityError < StandardError # :nodoc:
@@ -11,7 +11,7 @@ module AnnotationSecurity # :nodoc:
 
 end
 
-# Exception indicating that some rights violation took place
+# Exception indicating that some rights were violated.
 #
 class SecurityViolationError < AnnotationSecurity::SecurityError
 
@@ -59,21 +59,30 @@ class SecurityViolationError < AnnotationSecurity::SecurityError
   end
 end
 
-module AnnotationSecurity # :nodoc:
+module AnnotationSecurity
 
-  class RuleError < SecurityError # :nodoc:
-    def self.defined_twice(type,rule)
+  # = AnnotationSecurity::RuleError
+  #
+  # Will be raised if a right or relation is defined twice
+  # or has an invalid name.
+  #
+  class RuleError < SecurityError
+    def self.defined_twice(type,rule) # :nodoc:
       new "The #{type} #{rule} is defined twice"
     end
 
-    def self.forbidden_name(type,rule)
+    def self.forbidden_name(type,rule) # :nodoc:
       new "#{rule} is not allowed as #{type} name"
     end
   end
 
-  class RuleExecutionError < RuleError # :nodoc:
+  # = AnnotationSecurity::RuleExecutionError
+  #
+  # Will be raised if an error occured while evaluation a right or relation.
+  #
+  class RuleExecutionError < RuleError
 
-    def initialize(rule, proc=false, ex = nil)
+    def initialize(rule, proc=false, ex = nil) # :nodoc:
       if ex
         log_backtrace(proc,ex)
         super("An error occured while evaluating #{rule}: \n" +
@@ -83,7 +92,7 @@ module AnnotationSecurity # :nodoc:
       end
     end
 
-    def set_backtrace(array)
+    def set_backtrace(array) # :nodoc:
       super((@bt || []) + array[1..-1])
     end
 
@@ -102,7 +111,12 @@ module AnnotationSecurity # :nodoc:
 
   end
 
-  class RuleNotFoundError < RuleError # :nodoc:
+  # = AnnotationSecurity::RuleNotFoundError
+  #
+  # Will be raised when attempting to acces a right or relation that was not
+  # defined.
+  #
+  class RuleNotFoundError < RuleError
     def self.for_rule(rname,policy_class)
       new("Unknown #{policy_class.static? ? 'static' : 'dynamic'} " +
           "rule '#{rname}' for #{policy_class.name}")

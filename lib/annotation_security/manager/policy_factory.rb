@@ -1,8 +1,9 @@
 #
-# = lib/annotation_security/policy_factory.rb
+# = lib/annotation_security/manager/policy_factory.rb
 #
+
+# = AnnotationSecurity::PolicyFactory
 # Builds the policy classes.
-#
 #
 class AnnotationSecurity::PolicyFactory # :nodoc:
 

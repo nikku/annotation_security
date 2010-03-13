@@ -1,14 +1,15 @@
 #
 # = lib/annotation_security/manager/right_loader.rb
 #
+
+# = AnnotationSecurity::RightLoader
 # Contains the right loader class, which is responsible for loading
-# right definitions for resources.
-#
-# Load rights from a yaml file or a hash
+# right definitions for resources. Load rights from a yaml file or a hash.
 #
 # == Example YAML
 #
-# The file './config/security/rights.yml' might look like this:
+# The file <tt>config/security/rights.yml</tt> inside a rails app
+# might look like this:
 #  picture:
 #    # a user may show a picture if he fulfils the 'related'-relation
 #    show: if related
@@ -25,14 +26,13 @@
 #    create: if logged_in
 #    edit: if owner
 #    delete: if owner or administrator
-# The file can be loaded via <code>AnnotationSecurity.load_rights('rights')</code>
+# The file can be loaded via <code>AnnotationSecurity#load_rights('rights')</code>.
 #
 # A right's condition can use the keywords +if+, +unless+, +and+, +or+ and
 # +not+, brackets, other rights and all of the resource's relations
-# (see RelationLoader).
-#
-# For better readability you may add the prefixes 'may', 'is', 'can' or 'has',
-# or append one of the suffixes 'for', 'in', 'of' or 'to'.
+# (see AnnotationSecurity::RelationLoader). For better readability you may
+# add the prefixes +may+, +is+, +can+ or +has+,
+# or append one of the suffixes +for+, +in+, +of+ or +to+.
 #
 #  user_content:
 #    edit: if is_owner_of
@@ -45,8 +45,10 @@ class AnnotationSecurity::RightLoader
   # Goes through all resources of +hash+ and load the defined rights.
   #
   def self.define_rights(hash) # :nodoc:
-    hash.each_pair do |resource_class, rights|
-      new(resource_class).define_rights(rights)
+    if hash
+      hash.each_pair do |resource_class, rights|
+        new(resource_class).define_rights(rights)
+      end
     end
   end
 
@@ -78,6 +80,7 @@ class AnnotationSecurity::RightLoader
   def extract_applies_to(hash)
     applies_to = hash.delete('applies_to') || hash.delete(:applies_to)
     return [] if applies_to.blank?
+    applies_to = [applies_to] if applies_to.is_a? String
     applies_to.collect{ |r| r.split(',') }.flatten.
                collect{ |r| AnnotationSecurity::PolicyManager.policy_factory(r.strip) }
   end

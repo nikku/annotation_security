@@ -1,5 +1,10 @@
 #
-# = libs/security/user_wrapper.rb
+# = lib/annotation_security/user_wrapper.rb
+#
+
+# = AnnotationSecurity::UserWrapper
+#
+# This class is not in use!
 #
 # Needed for evaluating relations, especially if the :as-option is used.
 # 

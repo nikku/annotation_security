@@ -1,11 +1,11 @@
 #
-# = libs/security/model_observer.rb
+# = lib/annotation_security/model_observer.rb
 #
 # Contains SecurityObserver which implements constraint checking for model
 # classes.
 #
 
-module AnnotationSecurity # :nodoc:
+module AnnotationSecurity
 
   # Observes changes in models and applies security policy to them
   #
@@ -16,12 +16,10 @@ module AnnotationSecurity # :nodoc:
     observe # will be set automatically. However, observe must not be removed
     
     def before_validation_on_create(record)
-      #puts "#{record} apply create"
       SecurityContext.observe record
     end
     
     def before_validation_on_update(record)
-      #puts "#{record} apply edit"
       SecurityContext.observe record
     end
 
@@ -32,13 +30,11 @@ module AnnotationSecurity # :nodoc:
         # The record is new
       else
         # The record came out of database
-        #puts "#{record} apply show"
         SecurityContext.observe record
       end
     end
 
     def before_destroy(record)
-      #puts "#{record} apply delete"
       SecurityContext.observe record
     end
 
@@ -47,7 +43,6 @@ module AnnotationSecurity # :nodoc:
     #
     def reload_model_observer
       observed_classes.each do |klass|
-        #puts klass.inspect
         add_observer!(klass.name.constantize)
       end
     end

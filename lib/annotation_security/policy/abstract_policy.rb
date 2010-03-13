@@ -1,10 +1,10 @@
 #
-# = lib/security/abstract_policy.rb
+# = lib/annotation_security/policy/abstract_policy.rb
 #
+
 # Abstract superclass for all policies
 #
 # For each resource type there is a corresponding policy class.
-# 
 # In its entire lifetime, a policy object is responsible for a single user.
 # A policy object can validate the rights for only one resource
 # object at a time (it is not thread safe!).
@@ -193,6 +193,9 @@ class AnnotationSecurity::AbstractPolicy
   def allowed?(right,resource_obj,*args)
     @resource = resource_obj
     __send__(right,*args)
+#  rescue
+#    raise "#{$!} in #{resource_type} policy " +
+#      "during rule #{right} of #{resource_obj} with args [#{args.join(", ")}]"
   end
 
   # Sets the resource object and returns self
@@ -258,7 +261,7 @@ class AnnotationSecurity::AbstractPolicy
   end
 
   # Returns a list of user wrappers for a role.
-  # See AnnotationSecurity::UserWrapper#all_for_role for details.
+  # See #all_for_role for details.
   # * +symbol+ Name of the role
   # * +require_user+ (boolean) Indicating if the rule that requested the roles
   #   requires a user for evaluation. If @user is nil and +require_user+ is
@@ -267,12 +270,27 @@ class AnnotationSecurity::AbstractPolicy
   #   returned and the rule will be evaluated once (with +nil+ as current user).
   def user_roles(symbol,require_user) # :nodoc:
     return [nil] if @user.nil? && !require_user
-    AnnotationSecurity::UserWrapper.all_for_role(@user,symbol)
+    # AnnotationSecurity::UserWrapper.all_for_role(@user,symbol)
+    all_for_role(@user,symbol)
+  end
+
+  # Return objects for the requested role. The role(s) will be
+  # determined with sending user.as_'role'.
+  # (Normally a user has a role only once, however it will work when he
+  # has many roles of the same kind as well)
+  def all_for_role(user,role_name) # :nodoc:
+    return [] if user.nil?
+    # is it possible that user is a role? if so, implement conversion to user
+    return [user] if role_name.nil?
+    roles = user.__send__("as_#{role_name}")
+    return [] if roles.blank?
+    roles = [roles] unless roles.is_a?(Array)
+    roles.compact
   end
 
   # Evaluate a rule that is defined with a proc
   # * +symbol+ Name of the rule
-  # * +user+ AnnotationSecurity::UserWrapper object that has to fulfill the rule
+  # * +user+ user object that has to fulfill the rule
   # * +args+ List of additional arguments
   def evaluate_rule(symbol,user,args) # :nodoc:
     get_rule!(symbol).evaluate(self,user,@resource,*args)

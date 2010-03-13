@@ -1,9 +1,9 @@
+#
+# = lib/extensions/active_record.rb
+#
 
-module ActiveRecord # :nodoc:
- 
-  #
-  # = lib/extensions/active_record.rb
-  #
+module ActiveRecord # :nodoc: 
+
   # Extends ActiveRecord::Base so that model classes 
   # can be tagged as resources.
   #

@@ -1,8 +1,10 @@
 #
 # = lib/annotation_security/includes/active_record.rb
 #
+
+# = AnnotationSecurity::ActiveRecord
+# 
 # Included by model classes if they are used as resources.
-#
 # Includes AnnotationSecurity::Resource and sets up the model observer.
 #
 module AnnotationSecurity::ActiveRecord # :nodoc:

@@ -2,6 +2,7 @@ require 'fileutils'
 
 plugin_assets_root = File.dirname(__FILE__) + "/../assets"
 rails_root = "#{RAILS_ROOT}"
+config_root = File.join(rails_root, "config")
 
 files = %w{
   config/initializers/annotation_security.rb

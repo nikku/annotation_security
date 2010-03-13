@@ -1,12 +1,15 @@
 #
 # = lib/annotation_security/includes/user.rb
 #
+
+# = AnnotationSecurity::User
+# 
 # This module should be included by the user domain class to
 # enable full support of all features.
 #
 module AnnotationSecurity::User
 
-  # Returns true if this is the user given as parameter
+  # Returns true if this is the user given as parameter.
   #
   # Required to have a common interface with AnnotationSecurity::Role.
   #

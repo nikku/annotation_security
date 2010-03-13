@@ -1,5 +1,8 @@
 #
 # = lib/annotation_security/includes/helper.rb
+#
+
+# = AnnotationSecurity::Helper
 # 
 # This module adds some useful helper methods to your templates.
 #
@@ -19,8 +22,8 @@ module AnnotationSecurity::Helper
   #   allowed? :show, @resource
   #   # equivalent to the above call if @resource.resource_type == :resource
   #
-  # A policy description used as a controller annotation may also be to check
-  # a right
+  # A policy description used as a controller annotation may also be used 
+  # to check a right
   #
   #   allowed? "show resource", @resource
   #   # => true if the current user has the right "show resource" for @resource
@@ -40,14 +43,19 @@ module AnnotationSecurity::Helper
   #  allowed? :administrate
   #  # => true if the user is allowed to administrate all resources.
   #
+  # See SecurityContext#allowed?.
+  #
   def allowed?(*args)
     SecurityContext.allowed?(*args)
   end
 
+  alias a? allowed?
+
   # Equivalent to allowed?; is? is provided for better readability.
   #
   #  allowed? :logged_in
-  #  is? :logged_in # <= equivalent but better to read
+  # vs
+  #  is? :logged_in
   #
   def is?(*args)
     SecurityContext.is?(*args)
@@ -55,76 +63,90 @@ module AnnotationSecurity::Helper
 
   # Checks whether the user is allowed to access the action.
   #
-  # In case context is needed to evaluate the rule this
-  # can be provided by passing the context (i.e. some model objects) as
-  # an additional parameter
+  # Expects arguments like #link_to_if_allowed, just without name and block.
   #
-  # ==== Parameters
-  # * +options+ See #url_for for details
-  # * <tt>*objects</tt> (Optional) Resource objects that will be used in the action
+  # Returns true if the action is allowed.
   #
-  # ==== Examples
-  #
-  #  action_allowed?({:controller => :courses, :action => edit, :id => course.id})
-  #  action_allowed?(edit_course_path(course))
-  # 
-  # Checks the 'edit' action of the course controller. Evaluates all static
-  # rules and all dynamic rules that are bound to the parameter :id.
-  #
-  # If you want to have the unbound rules checked as well, you should use one
-  # of these examples:
-  #  action_allowed?({:controller => :courses, :action => edit,
-  #                   :id => course.id, :resource => course})
-  #  action_allowed?(edit_course_path(course), course)
-  #  action_allowed?(:edit_course_path, course)
-  #  
-  # Checks the 'edit' action of the course controller. Evaluates all static
-  # rules, all dynamic rules that are bound to the parameter :id and all
-  # unbound dynamic rules that can be applied to a course resource.
-  #
-  def action_allowed?(*args)
-    options, objects = parse_args(*args)
-    params = parse_path_info(options)
-    SecurityContext.allow_action?(
-        params[:controller], params[:action],
-        objects, params)
+  def action_allowed?(options, objects=nil, params=nil, html_options=nil)
+
+    options, objects, params, html_options =
+              parse_allow_action_args(options, objects, params, html_options)
+
+    controller = params.delete :controller
+    action = params.delete :action
+    SecurityContext.allow_action?(controller, action, objects, params)
   end
 
-  # Return a link tag with the specified name to the specified resource if
-  # the user is allowed to access it. See #link_to_if and #action_allowed?
-  # for documentation of the method signature.
+  # Returns a link tag with the specified name to the specified resource if
+  # the user is allowed to access it. See #link_to_unless and
+  # SecurityContext#action_allowed? for more documentation.
+  #
+  # There are two ways of using #link_to_if_allowed
+  #
+  # === As #link_to with alternative
+  # (or as #link_to_unless without explicit condition)
+  #  link_to_if_allowed(name, options={}, html_options=nil) { 'alternative' }
+  # +options+ either is a hash, like
+  #  { :controller => :comments, :action => edit, :id => @comment }
+  # a string, like
+  #  "comments/1/edit"
+  # or
+  #  edit_comment_path(@comment)
+  # or a single resource object.
+  #
+  # Notice that when providing a string, controller, action and parameters will
+  # be parsed. After that, the resource types of the parameters are *guessed*,
+  # the resources are retrieved and the rules of the action are evaluated.
+  #
+  # The block will be evaluated if the action is not allowed,
+  # like in #link_to_unless.
+  #
+  # === As #link_to with alternative and explicit objects
+  #  link_to_if_allowed(name, options={}, objects=[], params={}, html_options=nil) { 'alternative' }
+  # In this case, controller and action will be derived from +options+ unless
+  # they are specified in +params+.
+  # All items in +objects+ and all remaining items in +params+ will be used
+  # for evaluating the rules of the action.
+  #
+  # If you want to specify +html_options+, provide at least an empty hash
+  # for +params+.
+  #
+  # Unlike to #link_to, you can also provide a symbol as +options+ value.
+  # In this case, the target url will be determined by sending symbol as
+  # message, providing +objects+ and +params+ as arguments, e.g.
+  #  link_to_if_allowed("Show comment", :comment_path, [@article, @comment], {:details => true})
+  # will call
+  #  comment_path(@article, @comment, {:details => true})
+  #
+  # === Examples
+  #  <%= link_to_if_allowed("Show", @course) { } %>
+  #  <%= link_to_if_allowed("New", new_course_path) { "You may not create a new course." } %>
+  #
+  # These two are equivalent, however, the second approach is more efficient:
+  #  <%= link_to_if_allowed("Edit", edit_course_path(@course)) { } %>
+  #  <%= link_to_if_allowed("Edit", :edit_course_path, @course) { } %>
+  #
+  # The HTML-options are taken into account when choosing the action.
+  #  <%= link_to_if_allowed("Delete", @course, {:method => :delete}) { } %>
+  #
+  # You can also define all values explicitly
+  #  <%= link_to_if_allowed("Edit comment", "articles/1/comments/5/edit", [@comment], {:article => @comment.article, :action => :edit, :controller => :comments}) { } %>
   # 
-  # In case context is needed to evaluate the allowed or not allowed rule this
-  # can be provided by passing the context (such as a model object) as
-  # the third parameter to this method.
-  #
-  #   <%= link_to_if_allowed "Show", {:action => "Hello"}, @obj %>
-  #
-  # Otherwise the context is obtained from the :resource key of the second
-  # parameter (if it is a Hash)
-  #
-  #   <%= link_to_if_allowed "Show", :action => "hello", :resource => @obj %>
-  #
-  # Or the second parameter itself is used as a resource if it responds to
-  # #resource_type:
-  #
-  #   <%= link_to_if_allowed "Show", @obj %>
-  #
-  # ==== Parameters
-  # - +name+
+  # === Parameters
+  # - +name+ Text of the link
   # - +options+
   # - +objects+
+  # - +params+
   # - +html_options+
   #
-  def link_to_if_allowed(name, *args, &block)
+  def link_to_if_allowed(name, options, objects=nil, params=nil, html_options=nil, &block)
 
-    html_options = (args.size > 1 && args.last.is_a?(Hash)) ? args.pop : {}
+    options, objects, params, html_options =
+              parse_allow_action_args(options, objects, params, html_options)
 
-    options, objects = parse_args(*args)
-    params = parse_path_info(options, html_options)
-
-    allowed = SecurityContext.
-      allow_action?(params[:controller], params[:action], objects, params)
+    controller = params.delete :controller
+    action = params.delete :action
+    allowed = SecurityContext.allow_action?(controller, action, objects, params)
 
     link_to_if(allowed, name, options, html_options, &block)
   end
@@ -133,71 +155,61 @@ module AnnotationSecurity::Helper
 
   private
 
-  # Parse controller and action part from url_options.
-  #
-  # Returns {:controller => "controller_part", :action => "action_part"}
-  #
-  def parse_path_info(url_options, html_options = {})
-
-    opts = nil
-
-    # Try to get url options directly form options hash
-    #
-    if url_options.is_a? Hash
-      unless url_options[:action].nil?
-        opts = url_options.dup
-        opts[:controller] ||= @controller.controller_name
+  def parse_allow_action_args(*args)
+    if args.second && !(args.second.is_a? Hash)
+      # objects and params are specified
+      options, objects, params, html_options = args
+      objects = [objects] unless objects.is_a? Array
+      params ||= {}
+      html_options ||= {}
+      if options.is_a? Symbol
+        # options is a symbol, send the message to get the link path
+        path_args = objects + [params]
+        options = send(options, *path_args)
+      end
+    else
+      # retrieve objects and params from options
+      options = args.first
+      html_options = args.second || {}
+      objects = [] # everything will be in the params
+      if options.is_a? Hash
+        params = options.dup
+      else
+        params = parse_action_params(options, html_options)
       end
     end
 
-    unless opts
-      env = parse_environment(html_options)
-      opts = parse_path_info_from_url_options(url_options, env)
-
-      # Exchange opts action and id if action is a number
-      # (if no action is given it is supposed that action = "show")
-      if opts[:action] =~ /^\d+$/
-        action = opts[:id]
-        opts[:id] = opts[:action]
-        opts[:action] = action
-      end
+    unless params[:controller] && params[:action]
+      # if controller and action are not given, parse from options
+      params = parse_controller_action(options, params, html_options)
     end
-
-    opts[:action] ||= case html_options[:method]
-        when :delete    then "destroy"
-        when :put       then "update"
-        when :post      then "create"
-        else "show"
-        end
-
-    opts
+    
+    [options, objects, params, html_options]
   end
 
-  def parse_environment(html_options)
-    returning Hash.new do |h|
-      h[:method] = html_options[:method] || :get
+  # uses options and html_options to retrieve controller and action,
+  # adds these values to params hash
+  def parse_controller_action(options, params, html_options)
+    path_info = get_path_info(options, html_options)
+    params[:controller] ||= path_info[:controller]
+    params[:action] ||= path_info[:action]
+    params
+  end
+
+  # uses options and html_options to retrieve controller, action
+  # and params
+  def parse_action_params(options, html_options)
+    get_path_info(options, html_options)
+  end
+
+  def get_path_info(options, html_options)
+    if options.is_a? String
+      path = options
+    else
+      path = url_for(options)
     end
+    env = { :method => (html_options[:method] || :get ) }
+    ActionController::Routing::Routes.recognize_path(path, env)
   end
 
-  # Returns path info for given url string
-  #
-  def parse_path_info_from_url_options(url_options, env = {})
-    url = url_for(url_options)
-    url.gsub!(/\?.*$/, "")
-    ActionController::Routing::Routes.recognize_path(url, env)
-  end
-
-  # Parse context objects from request data
-  #
-  def parse_args(options, *objects)
-    if objects.blank?
-      if options.is_a? Hash and options.key? :resource
-        objects = [options.delete(:resource)]
-      elsif options.__is_resource?
-        objects = [options]
-      end
-    end
-    options = __send__(options,*objects) if options.is_a? Symbol
-    [options,objects]
-  end
 end

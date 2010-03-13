@@ -1,8 +1,8 @@
 #
 # = lib/annotation_security/manager/relation_loader.rb
 #
-# Contains the relation loader class, which is responsible for loading
-# the relation definitions for resources.
+
+# Class responsible for loading the relation definitions for resources.
 #
 # == Defining a relation for a resource
 #
@@ -85,7 +85,7 @@
 # used for defining a relation +super_owner+, that is true if the user is the
 # owner and a super user.
 # 
-#  super_owner(:is => :super_user) { |user,picture| picture.user == user }
+#  owner { |user,picture| picture.user == user }
 #  super_owner(:is => :super_user) "if owner"
 # 
 #  super_user(:system, :is => :super_user)
@@ -94,15 +94,106 @@
 # 
 # For a relation to which the <tt>:as => symbol</tt> option is passed as a
 # parameter the current user is replaced by the invocation of
-# <tt>current_user.as_symbol</tt>. The method invocation may return +nil+
+# <tt>current_credential.as_[symbol]</tt>. The method invocation may return +nil+
 # indicating that the transformation failed. In this case the relation for
 # which <tt>:as => ..</tt> was specified does not exist.
 # 
-# ==== :require_user
+# ==== :require_credential
 # By default, a relation requires a user to be executed. Therefore, rights will
 # always fail if the user is nil. To enable rights like 'unless logged_in', the
-# :require_user option can be set to false.
-#  logged_in(:system, :require_user => false) { |user| not user.nil? }
+# :require_credential option can be set to false.
+#  logged_in(:system, :require_credential => false) { |user| not user.nil? }
+#
+# === Evaluation time
+# While most relations are between the user and a resource object, some are
+# beween the user and an entire class of objects. This means that no instance of
+# a resource is required to tell whether the user has that relation or not.
+#
+# ==== The :resource flag
+# This flag is set by default. It is set for relations that need a resource.
+# 
+#  owner { |user,picture| picture.user == user }
+#  # is short for
+#  # owner(:resource) { |user,picture| picture.user == user }
+#
+# ==== The :system flag
+# You can use the :system flag to denote that a relation does not
+# require a resource object.
+#
+#  all_resources do
+#    super_user(:system, :is => :super_user)
+#  end
+#
+# It is possible to define system relations only for certain resources, and they
+# do not conflict with resource relations.
+#
+#  resource :present do
+#    receiver(:system) { |user| user.was_good? }
+#    receiver { |user,present| present.receiver == user }
+#  end
+#
+# The advantage of system relations is that they improve the rights evaluation.
+# Consider the right
+#  present:
+#    receive: if receiver
+#
+# If an action is invoked requiring the receive-present right,
+# AnnotationSecurity will evaluate the system relation before even entering the
+# action, thus improving the fail fast behavior and avoiding unnecessary
+# operations.
+#
+# Once a present object is observed during the action, the resource relation
+# will be evaluated as well.
+#
+# ==== The :pretest flag
+#
+# Using the :pretest flag, it is possible to define both resource and system
+# relations in one block.
+#
+#  resource :present do
+#    receiver(:pretest) do |user, present|
+#      if present
+#        present.receiver == user
+#      else
+#        user.was_good?
+#      end
+#    end
+#  end
+#
+# This can be helpfull if your relation depends on other relations, where a
+# resource and a system version is available.
+#
+#  all_resources do
+#    responsible(:pretest) { lecturer or corrector }
+#    lecturer(:system, :as => :lecturer)
+#    corrector(:system, :as => :corrector)
+#  end
+#
+#  resource :course do
+#    lecturer(:as => :lecturer) { |lecturer, course| course.lecturers.include? lecturer }
+#    corrector(:as => :corrector) { |corrector, course| course.correctors.include? corrector }
+#  end
+#  # For other resources, lecturer and corrector are defined differently
+#
+# === Defining relations as strings
+#
+# Instead of a block, a string can be used to define the relation.
+#  responsible :pretest, "if lecturer or corrector"
+#
+# The string syntax provides more simplifications, like referring to relations
+# of other resources.
+#
+# This example will evaluate the course-correction relation for the course
+# property of an assignment resource.
+#  resource :assignment do
+#    corrector "if course.corrector: course"
+#  end
+#
+# As the course class includes AnnotationSecurity::Resource, the resource type
+# is not explicitly needed.
+#  resource :assignment_result do
+#    corrector "if corrector: assignment.course"
+#  end
 #
 #
 class AnnotationSecurity::RelationLoader

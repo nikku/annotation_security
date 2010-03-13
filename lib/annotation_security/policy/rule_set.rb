@@ -1,6 +1,8 @@
 #
-# = lib/security/rule_set.rb
+# = lib/annotation_security/policy/rule_set.rb
 #
+
+# = AnnotationSecurity::RuleSet
 # Contains all rule objects for a policy
 #
 class AnnotationSecurity::RuleSet # :nodoc:
@@ -59,7 +61,7 @@ class AnnotationSecurity::RuleSet # :nodoc:
       add_rule(symbol,
           "static_policy.#{symbol}(*args)",
           :resource,
-          :require_user => rule.requires_user?)
+          :require_credential => rule.requires_credential?)
     end
   end
 

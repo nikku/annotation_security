@@ -1,3 +1,7 @@
+#
+# = lib/annotation_security/manager/resource_manager.rb
+#
+
 # Needed to find resource objects when only their id is known
 #
 class AnnotationSecurity::ResourceManager # :nodoc:

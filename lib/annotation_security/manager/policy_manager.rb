@@ -1,9 +1,11 @@
-require 'yaml'
-
 #
 # = lib/annotation_security/manager/policy_manager.rb
 #
-# Manages the policies for all resource classes.
+require 'yaml'
+
+# = AnnotationSecurity::PolicyManager
+#
+# Manages loading and creation of all policy classes.
 #
 class AnnotationSecurity::PolicyManager # :nodoc:
 

@@ -1,33 +1,26 @@
 #
 # = lib/security_context.rb
 #
-# The SecurityContext singleton provides methods for all security concerns of
+# Contains the SecurityContext
+require 'active_support'
+
+# = SecurityContext
+#
+# The SecurityContext provides methods for all security concerns of
 # the current request.
 #
-# For every request, it has to be initialized using current_user=. It is
-# recommended to do this in an around filter, which be used to catch
-# AnnotationSecurityExceptions as well
+# For every request, it has to be initialized using #current_user=. It is
+# recommended to do this in a security filter, which can be used to catch
+# AnnotationSecurityExceptions as well.
 #
-#  around_filter :security_filter
-#
-#  def security_filter
-#    SecurityFilter.current_user = session[:user]
-#    # or SecurityFilter.current_user = User.find(session[:user_id])
-#    # depending on your session management
-# 
-#    yield
-#  rescue SecurityValidationException
-#    render :template => "welcome/not_allowed"
-#  end
-#
-# The security context is unique for each thread, if you want to use
-# multi threading, see load for details.
+# The SecurityContext is implemented as a singleton for the current thread.
+# Thus, all instance methods can be send to the class as well.
 #
 class SecurityContext
 
   # Returns current security context
   #
-  def self.current # :nodoc:
+  def self.current
     Thread.current[:security_context]
   end
 
@@ -36,18 +29,6 @@ class SecurityContext
   #
   def self.initialize(controller) # :nodoc:
      load(new(controller))
-  end
-
-  # Sets the current user. This has to be done in a before or around filter,
-  # *before* entering the action. Elsewise, the user will be interpreted as
-  # not being logged in. Once set, the current user cannot be changed.
-  #
-  def self.current_user=(user)
-    current.user = user
-  end
-
-  def self.current_user
-    current.user
   end
 
   # As the security context is a singleton bound to the current thread,
@@ -68,23 +49,123 @@ class SecurityContext
     Thread.current[:security_context] = sec_context
   end
 
+  if RAILS_ENV == 'development'
+    # Disables all security checkings.
+    # Is only available in development mode.
+    def self.ignore_security!
+      security_methods.each do |method|
+        class_eval "def self.#{method}(*args); true; end"
+      end
+    end
+  end
+
+  ## ===========================================================================
+  ## Instance
+
+  # Initialize context for the given controller
+  #
+  def initialize(controller) # :nodoc:
+    super()
+    
+    @controller = controller
+
+    # initialize rule
+
+    # rules that are not bound to any source,
+    # will be triggered by model observer
+    @context_rules = new_rules_hash
+    @valid_objects = new_valid_objects_hash
+
+    # rules bound to request param
+    @param_rules = new_bound_rules_hash
+    @param_valid_objects = new_bound_valid_objects_hash
+
+    # rules bound to variable
+    @var_rules = new_bound_rules_hash
+    @var_valid_objects = new_bound_valid_objects_hash
+
+    # Hash with all required policies
+    @policies = new_policy_hash
+  end
+
+  # Sets the current user. This has to be done in a before or around filter,
+  # *before* entering the action. Elsewise, the user will be interpreted as
+  # not being logged in. Once set, the current user cannot be changed.
+  #
+  def credential=(user)
+    if @cred_set
+      raise AnnotationSecurity::AnnotationSecurityError,
+            "Credential already set for this request"
+    end
+    @cred_set = true
+    @credential = user
+  end
+
+  # Get the current credential
+  def credential
+    @credential
+  end
+
+  alias current_credential= credential=
+  alias current_credential credential
+
   # Creates a copy of the current security context.
-  # See load for more information.
-  def self.copy
-    current.copy
+  # See #load for more information.
+  def copy
+    returning self.class.new(@controller) { |sc| sc.credential = credential }
+  end
+
+  # Will be set if an security exception was catched by the security filter
+  def security_exception=(ex) # :nodoc:
+    @security_exception = ex
+    @controller.security_exception = ex
   end
 
   # If the action was aborted due to a security exception, this returns the
   # exception that was raised. Returns nil if no exception occurred.
   #
-  def self.security_exception
-    current.security_exception
+  def security_exception
+    @security_exception
   end
 
-  # Sets the security exception that is responsible for aborting the action.
+  # See eval_with_security.
+  def send_with_security(rules, obj, msg, *args, &proc)
+    eval_with_security(rules) { obj.send(msg, *args, &proc) }
+  end
+
+  # Evaluates the given block, additionally using the given rules.
+  #  rules == [ { :action => action, :resource => res_type, :source => binding  }, ...]
+  # action and res_type should be symbols, binding is optional
   #
-  def self.security_exception=(ex) # :nodoc:
-    current.security_exception = ex
+  def eval_with_security(rules)
+    install_rules(rules)
+
+    apply_rules_before_action
+
+    result = yield
+
+    apply_rules_after_action
+
+    result
+  rescue AnnotationSecurity::SecurityError
+    SecurityContext.security_exception = $!
+    raise $!
+  ensure
+    uninstall_rules(rules)
+    result
+  end
+
+  def apply_rules_before_action # :nodoc:
+    # apply static rules before entering the action
+    apply_static_rules
+    # bindings may apply to parameters, try to check them too
+    apply_param_rules
+    apply_var_rules
+  end
+
+  def apply_rules_after_action # :nodoc:
+    # check again, bindings may have been changed
+    apply_var_rules
   end
 
   # Returns true iif the operation defined by +policy_args+ is allowed.
@@ -110,7 +191,7 @@ class SecurityContext
   # A policy may also be applied without an object representing the context:
   #
   #   allowed? :show, :resource
-  #   # => true if the current may show resources. 
+  #   # => true if the current may show resources.
   #
   # This will only check system and pretest rules. The result +true+ does not
   # mean that the user may show all resources. However, a +false+ indicates
@@ -122,8 +203,9 @@ class SecurityContext
   #  allowed? :administrate
   #  # => true if the user is allowed to administrate all resources.
   #
-  def self.allowed?(*policy_args)
-    current.allowed?(*policy_args)
+  def allowed?(*policy_args)
+    policy_args = AnnotationSecurity::Utils.parse_policy_arguments(policy_args)
+    __allowed?(*policy_args)
   end
 
   # Equivalent to allowed?; is? is provided for better readability.
@@ -132,8 +214,13 @@ class SecurityContext
   # vs
   #  SecurityContext.is? :logged_in
   #
-  def self.is?(*policy_args)
-    current.allowed?(*policy_args)
+  alias is? allowed?
+
+  # Raises a SecurityViolationError if the rule defined by +policy_args+ is not
+  # allowed. See allowed? for details.
+  #
+  def apply_rule(*args)
+    self.class.raise_access_denied(*args) unless allowed?(*args)
   end
 
   # Checks the rules of an other action. Note that rules that are bound to a
@@ -144,7 +231,7 @@ class SecurityContext
   # * +action+ The called action, like :update
   # * +objects+ (optional) List of objects that will be relevant for that action.
   # * +params+ (optional) Hash of the passed parameters, like :id => 1.
-  # 
+  #
   # ==== Examples
   #
   # Checks static and pretest rules.
@@ -162,338 +249,133 @@ class SecurityContext
   #  # => true if the current user may execute ResourcesController#edit,
   #  #    assuming that @resource will be used in that action
   #
-  def self.allow_action?(controller, action, objects = [], params = {})
-    current.allow_action?(controller, action, objects, params)
-  end
+  def allow_action?(*args) # :nodoc:
 
-  # Raises a SecurityViolationError if the rule defined by +policy_args+ is not
-  # allowed. See allowed? for details.
-  #
-  def self.apply_rule(*policy_args)
-    current.apply_rule(*policy_args)
-  end
+    controller, action, objects, params =
+        AnnotationSecurity::Utils.parse_action_args(args)
 
-  # Applies all rules of the current action to the resource defined by
-  # +resource_args+. Raises a SecurityViolationError if a rule is
-  # violated.
-  #
-  # ==== Usage
-  #  apply_rules :resource, @resource
-  # where <tt>:resource</tt> is the resource type @resource belongs to, or
-  #  apply_rules @resource
-  # which is equivalent if <tt>@resource.resource_name == :resource</tt>
-  #
-  def self.apply_rules(*resource_args)
-    current.apply_rules(*resource_args)
-  end
-
-  # Call if a resource object was touched during an action. Will be called
-  # automatically for model objects.
-  # The class of +object+ must include AnnotationSecurity::Resource.
-  #
-  def self.observe(object)
-    current.apply_rules(object)
-  end
-
-  # Applies all system and pretest rules of the current action.
-  # Raises a SecurityViolationError if a rule is violated.
-  #
-  def self.apply_static_rules # :nodoc:
-    current.apply_static_rules
-  end
-
-  # Applies all rules that are not bound to a variable or a parameter.
-  # Raises a SecurityViolationError if a rule is violated.
-  # See apply_rules for details.
-  #
-  def self.apply_context_rules(*resource_args) # :nodoc:
-    current.apply_context_rules(*resource_args)
-  end
-
-  # Applies all rules that are not bound to a variable or a parameter.
-  # Raises a SecurityViolationError if a rule is violated.
-  #
-  def self.apply_bounded_rules # :nodoc:
-    current.apply_bounded_rules
-  end
-
-  # Raises a SecurityViolationError.
-  # See SecurityContext.allowed? for details on +policy_args+
-  #
-  def self.raise_access_denied(*policy_args)
-    current.raise_access_denied(*policy_args)
-  end
-
-  # Sometimes this security stuff can be annoying,
-  # so you can disable it in development mode
-  if RAILS_ENV == 'development'
-    def self.ignore_security!
-      methods(false).each do |method|
-        class_eval "def self.#{method}(*args); true; end"
-      end
-    end
-  end
-
-  ## ===========================================================================
-  ## Instance
-
-  # Initialize context for the given controller
-  #
-  def initialize(controller) # :nodoc:
-    super()
-    
-    @controller = controller
-
-    # Get all rules for the current action
-    @rules = @controller.class.context_rules_for(controller.action_name)
-    @bindings = @controller.class.bounded_rules_for(controller.action_name)
-
-    # Hash with all required policies
-    @policies = Hash.new { |h,k| h[k] = AnnotationSecurity::PolicyManager.create_policy(k, @user) }
-
-    # For each resource type, a list of objects that were already checked
-    @valid_objects = Hash.new { |h,k| h[k] = [] }
-  end
-
-  # Set the current user
-  def user=(user) # :nodoc:
-    raise AnnotationSecurity::AnnotationSecurityError, "User already set for this request" if @user_set
-    @user_set = true
-    @user = user
-  end
-
-  # Get the current user
-  def user # :nodoc:
-    @user
-  end
-
-  def copy #:nodoc:
-    returning self.class.new(@controller) do |sc|
-      sc.user = user
-    end
-  end
-
-  # Will be set if an security exception was catched by the security filter
-  def security_exception=(ex) # :nodoc:
-    @security_exception = ex
-    @controller.security_exception = ex
-  end
-
-  # If the action was aborted due to a security exception, this returns the
-  # exception that was raised. Returns nil if no exception occurred.
-  #
-  def security_exception # :nodoc:
-    @security_exception
-  end
-
-  # Returns true iif the operation defined by +policy_args+ is allowed.
-  # See class method for details.
-  #
-  def allowed?(*policy_args) # :nodoc:
-    policy_args = AnnotationSecurity::Utils.parse_policy_arguments(policy_args)
-    __allowed?(*policy_args)
-  end
-
-  # Checks the rules of an other action.
-  # See class method for details.
-  #
-  # ==== Parameters
-  # * +controller+ Symbol representing the controller, like :resource
-  # * +action+ The called action, like :update
-  # * +objects+ (optional) List of objects that will be relevant for that action.
-  # * +params+ (optional) Hash of the passed parameters, like :id => 1.
-  #
-  def allow_action?(controller, action, objects = [], params = {}) # :nodoc:
-
-    controller = parse_controller(controller)
-    rules = controller.context_rules[action.to_sym]
-    bindings = controller.bounded_rules[action.to_sym]
+    # var rules are ignored here
+    context_rules, param_rules, _ = get_rule_set(controller, action)
 
     # check static rules
-    evaluate_statically(rules,bindings)
+    evaluate_statically(context_rules)
 
-    # check involved objects
-    objects = [objects] unless objects.is_a? Array
-    return false unless objects.all? do |object|
-      allow_action_for_param?(rules,bindings,object)
+    # check context rules for all objects
+    objects.each do |o|
+      res_type = o.resource_type
+      evaluate_context_rules(context_rules, res_type, o)
     end
 
-    # chech param bindings
-    return false unless params.all? do |param,value|
-      allow_action_for_param?(rules,bindings,value,param)
-    end
-    
+    evaluate_bound_rules_for_params(param_rules, params)
+
     true
   rescue SecurityViolationError
     return false
-  end
-
-  # Raises a SecurityViolationError if the rule defined by +policy_args+ is not
-  # allowed. See allowed? for details.
-  #
-  def apply_rule(*args) # :nodoc:
-    raise_access_denied(*args) unless allowed?(*args)
-  end
-
-  # Applies all rules of the current action to the resource defined by
-  # +resource_args+. Raises a SecurityViolationError if a rule is violated.
-  # See class method for details.
-  def apply_rules(*resource_args) # :nodoc:
-    apply_context_rules(*resource_args)
-    apply_bounded_rules
   end
 
   # Applies all system and pretest rules of the current action.
   # Raises a SecurityViolationError if a rule is violated.
   #
   def apply_static_rules # :nodoc:
-    evaluate_statically(@rules,@bindings)
+    evaluate_statically(@context_rules)
   end
 
-  # Applies all rules that are not bound to a variable or a parameter.
-  # Raises a SecurityViolationError if a rule is violated.
-  # See apply_rules for details.
+  def apply_param_rules # :nodoc:
+    evaluate_bound_rules(@param_rules, @param_valid_objects)
+  end
+    
+  def apply_var_rules # :nodoc:
+    evaluate_bound_rules(@var_rules, @var_valid_objects)
+  end
+
+  # Applies all rules of the current action to the resource defined by
+  # +resource_args+. Raises a SecurityViolationError if a rule is
+  # violated.
   #
   def apply_context_rules(*res_args) # :nodoc:
-    _, res_type, obj = AnnotationSecurity::Utils.parse_policy_arguments([:r]+res_args)
-
-    # can be skipped if the object was already tested
-    unless valid?(res_type, obj)
-      # dont evaluate static rules again
-      evaluate_dynamically(@rules,res_type,obj)
-      set_valid(res_type,obj)
-    end
+    restype, res = AnnotationSecurity::Utils.parse_resource_arguments(res_args)
+    evaluate_context_rules(@context_rules, restype, res)
   end
 
-  # Applies all rules that are not bound to a variable or a parameter.
-  # Raises a SecurityViolationError if a rule is violated.
-  #
-  def apply_bounded_rules # :nodoc:
-    # The evaluation of bounded rules may fetch model objects from the database,
-    # which in turn triggers the evaluation of security rules.
-    # This guard is to prevent endless recursion.
-    return true if @checking_bindings
+  alias apply_rules apply_context_rules # :nodoc:
 
-    # Bounded rules are applied before rendering and redirecting. To enable
-    # redirecting to an error page, skip the evaluation if there already was
-    # an error in the action.
-    return true if @security_exception
-    
-    evaluate_bounded_rules
+  # Call if a resource object was touched during an action. Will be called
+  # automatically for model objects.
+  #
+  # Applies all rules that are currently active to the resource defined by
+  # +resource_args+. Raises a SecurityViolationError if a rule is
+  # violated.
+  #
+  # ==== Usage
+  #  observe :resource, @resource
+  # where <tt>:resource</tt> is the resource type @resource belongs to, or
+  #  observe @resource
+  # which is equivalent if <tt>@resource.resource_name == :resource</tt>
+  #
+  def observe(*resource_args)
+    apply_context_rules(*resource_args)
   end
 
   # Raise a SecurityViolationError.
   # See allowed? for details on +policy_args+.
   #
-  def raise_access_denied(*policy_args) # :nodoc:
-    raise SecurityViolationError.access_denied(user,*policy_args)
+  def self.raise_access_denied(*policy_args)
+    log_access_denied(policy_args)
+    raise SecurityViolationError.access_denied(credential,*policy_args)
   end
 
+  # Activates access logging for the current request.
+  #
+  def log!(&proc)
+    @enable_logging = true
+    @log = proc || Proc.new do |result, action, res_type, resource|
+      result = result ? 'ALLOWED' : 'REFUSED' unless result.is_a? String
+      msg = "%-8s %-10s %-16s %s" % [result, action, res_type, resource]
+      puts msg
+    end
+  end
+  
+  def log_access_denied(policy_args) # :nodoc:
+    @log.call('DENIED!', *policy_args) if @enable_logging
+  end
+
+  protected
+  
+  def log_access_check(*policy_args)
+    @log.call(*policy_args) if @enable_logging
+  end
+  
   private
 
-  # A hash in the form
-  # { :resource_type1 => [:right1_a, :right1_b],
-  #   :resource_type2 => [:right2_a, :right2_b] }
-  # Where +rightX_Y+ are the rights required to access
-  # objects of +resource_typeX+
-  ## rules
+# data =========================================================================
 
-  # Usage:
-  #  __allowed? :show, :assignment, an_assignment
-  def __allowed?(rule, res_type, resource=nil) # :nodoc:
-    if resource
-      policy(res_type).allowed?(rule, resource)
-    else
-      policy(res_type).static_policy.allowed?(rule, nil)
-    end
+  # { binding => { :res_type1 => [:action1, ...], ... }, ... }
+  def new_bound_rules_hash() # :nodoc:
+    Hash.new { |h,k| h[k] = new_rules_hash }
   end
 
-  # Evaluate dynamic rules for an object, skips all rules that are static only.
-  # * +rules+ a Hash like {:resource_type => [:right1, :right2]}
-  # * +resource_type+
-  # * +object+
-  def evaluate_dynamically(rules,resource_type,object) # :nodoc:
-    if resource_type == :__all__
-      # Used for evaluating parameters (like :id => 1) This means +object+
-      # probably is a number or a string and has to be converted to a
-      # corresponding resource object first
-      rules.each_pair do |res_type,rules|
-        o = AnnotationSecurity::ResourceManager.get_resource(res_type, object)
-        eval_dyn(res_type,rules,o)
-      end
-    elsif resource_type
-      eval_dyn(resource_type,rules[resource_type],object)
-    else
-      raise ArgumentError, "No resource type given"
-    end
+  # { :res_type1 => [:action1, ...], ... }
+  def new_rules_hash() # :nodoc:
+    Hash.new { |h,k| h[k] = [] }
   end
 
-  # Evaluate the +rights+ for an +object+ of a +resource_type+,
-  # skips all rules that are static only.
-  def eval_dyn(resource_type,rights,object) # :nodoc:
-    policy(resource_type).with_resource(object).evaluate_dynamically(rights)
+  # { binding => [object1, ...], ...}
+  def new_bound_valid_objects_hash() # :nodoc:
+    Hash.new { |h,k| h[k] = [] }
   end
 
-  # Evaluates the rules statically, skips all rules that are dynamic only.
-  # * +c_rules+ context rules
-  # * +b_rules+ bounded rules
-  def evaluate_statically(c_rules,b_rules) # :nodoc:
-    eval_stat(c_rules)
-    b_rules.each_value { |rules| eval_stat(rules) }
+  # { :res_type1 => { :action1 => [object1, ...], ...}, ...}
+  def new_valid_objects_hash() # :nodoc:
+    Hash.new { |h,k| h[k] = Hash.new { |h2,k2| h2[k2] = [] } }
+  end
+  
+  # {:res_type1 => policy1, ...}
+  def new_policy_hash() # :nodoc:
+    Hash.new { |h,k| h[k] = new_policy(k) }
   end
 
-  # Evaluate the rules statically, skips all rules that are static only.
-  # * +rules+ a Hash like {:resource_type => [:right1, :right2]}
-  def eval_stat(rules) # :nodoc:
-    rules.each_pair do |resource_type,rights|
-      policy(resource_type).evaluate_statically(rights)
-    end
-  end
-
-  # Try to find the controller class from a name.
-  # Looks for [name](s)Controller.
-  #
-  #  parse_controller :welcome #=> WelcomeController
-  #  parse_controller :user # => UsersController
-  #
-  def parse_controller(controller) # :nodoc:
-    begin
-      "#{controller.to_s.camelize}Controller".constantize
-    rescue NameError
-      "#{controller.to_s.pluralize.camelize}Controller".constantize
-    end
-  rescue NameError
-    raise NameError, "Controller '#{controller}' was not found"
-  end
-
-  # Return true iif the object is allowed in an action.
-  # * +rules+ context rules defined for that action
-  # * +bindings+ bounded rules defined for that action
-  # * +object+ the object that will be used
-  # * +param+ (optional) if the object was passed as a parameter, this is
-  #           is the parameter name. Note that in this case +object+ might be
-  #           a string of the object's ID and not the object itself.
-  #
-  def allow_action_for_param?(rules,bindings,object,param=nil) # :nodoc:
-    if object.__is_resource?
-      # Now we know the resource type of the object, so we can evaluate
-      # the context rules.
-      res_type = object.resource_type
-      evaluate_dynamically(rules, res_type, object)
-    end
-
-    if param      
-      # If we don't know the resource type, we have to test the rules for
-      # all resource types for the current binding. However, in most cases
-      # only one resource type should be possible per binding.
-      res_type ||= :__all__
-      # Evaluate the rules bound to this parameter
-      evaluate_dynamically(bindings[param], res_type, object)
-    end
-    
-    true
-  rescue SecurityViolationError
-    false
+  def new_policy(resource_type) # :nodoc:
+    AnnotationSecurity::PolicyManager.create_policy(resource_type, credential)
   end
 
   # Get the policy for a resource type from the cache
@@ -501,49 +383,169 @@ class SecurityContext
     @policies[res_type]
   end
 
-  # Returns true if the resource was already succesfully validated.
-  # +category+ is either a resource type, if the resource was approved for a
-  # context rule, or a binding, if the resource was approved for a bounded rule.
-  def valid?(category,resource) # :nodoc:
-    valid_objects(category).include? resource
+# rules management =============================================================
+
+  def install_rules(rules, rule_set=nil, controller=@controller.class)
+    rules.each { |rule| install_rule rule, rule_set, controller }
   end
 
-  # Returns all objects approved for +category+
-  def valid_objects(category) # :nodoc:
-    @valid_objects[category]
+  def install_rule(rule, rule_set, controller)
+    rule_list(rule, rule_set, controller) << rule[:action]
   end
 
-  # Sets the resources as valid.
-  def set_valid(category,*resources) # :nodoc:
-    @valid_objects[category] += resources
+  def uninstall_rules(rules, rule_set=nil, controller=@controller.class)
+    rules.each { |rule| uninstall_rule rule, rule_set, controller }
   end
 
-  # Checks all resources that are newly associated to a binding.
-  #
-  def evaluate_bounded_rules # :nodoc:
-    # Activate the guard to prevent endless recursion
-    @checking_bindings = true
-    
-    @bindings.each_pair do |binding,rules|
-      # Get all objects associated with the binding and remove those objects
-      # that have been validated for this binding already.
-      values = @controller.values_of_binding(binding) - valid_objects(binding)
+  def uninstall_rule(rule, rule_set, controller)
+    list = rule_list(rule, rule_set, controller)
+    i = list.index(rule[:action])
+    list.delete_at(i) if i
+  end
 
-      # Check the new objects
-      values.each { |obj| evaluate_dynamically(rules,get_res_type(obj),obj) }
-
-      set_valid(binding, *values)
+  def rule_list(rule, rule_set, controller)
+    rule_set ||= [@context_rules, @param_rules, @var_rules]
+    resource = rule[:resource] || controller.default_resource
+    source = rule[:source]
+    if source.nil?
+      list = rule_set.first[resource]
+    elsif source.is_a? Symbol
+      list = rule_set.second[source][resource]
+    else
+      list = rule_set.third[source][resource]
     end
-  ensure
-    @checking_bindings = false
+    list
   end
 
-  # Tries to determine the resource type of +obj+. If this is not possible,
-  # :__all__ is returned, indicating that the rules of all resources have to be
-  # checked.
-  #
-  def get_res_type(obj) # :nodoc:
-    obj.__is_resource? ? obj.resource_type : :__all__
+  # returns rule set for other controller actions
+  def get_rule_set(controller, action) # :nodoc:
+    @rule_sets ||= Hash.new { |h,k| h[k] = {} }
+    rule_set = @rule_sets[controller][action]
+    unless rule_set
+      rule_set = [new_rules_hash, new_bound_rules_hash, new_bound_rules_hash]
+      rules = controller.descriptions_of action
+      install_rules rules, rule_set, controller
+      @rule_sets[controller][action] = rule_set
+    end
+    rule_set
   end
-  
+
+# rule evaluation ==============================================================
+
+  # Evaluate the rules statically, skips all rules that are static only.
+  # * +rules+ a Hash like {:resource_type => [:right1, :right2]}
+  def evaluate_statically(rules) # :nodoc:
+    # rules == { :resource1 => [:right1, ...], ... }
+    rules.each_pair do |resource_type,rights|
+      policy(resource_type).evaluate_statically(rights)
+    end
+  end
+
+  # Checks bound rules. Evaluates the bindings, on success adds objects
+  # to valid objects.
+  #  rules == { binding1 => { :res_type1 => [:action1, ...], ... }, ... }
+  #  valid_objects == { binding1 => [object1, ...], ... }
+  def evaluate_bound_rules(rules, valid_objects) # :nodoc:
+    evaluate_bound_rules_with_binding(rules, valid_objects) do |binding|
+      @controller.values_of_source(binding)
+    end
+  end
+
+  # Checks bound rules using the values from params
+  #  rules == { binding1 => { :res_type1 => [:action1, ...], ... }, ... }
+  #  params == { binding1 => object1, ... }
+  def evaluate_bound_rules_for_params(rules, params) # :nodoc:
+    valid_objects = new_bound_valid_objects_hash
+    evaluate_bound_rules_with_binding(rules, valid_objects) do |binding|
+      values = params[binding]
+      values.is_a?(Array) ? values : [values]
+    end
+  end
+
+  def evaluate_bound_rules_with_binding(rules, valid_objects, &proc) # :nodoc:
+    rules.each_key do |binding|
+      value_ids = proc.call(binding)
+      rules[binding].each_key do |res_type|
+        values = value_ids.collect do |id|
+          AnnotationSecurity::ResourceManager.get_resource res_type, id
+        end
+        values.compact!
+        values_of_res_type = values - valid_objects[binding]
+        values_of_res_type.each do |resource|
+          evaluate_rules(rules[binding][res_type],
+                         res_type,
+                         resource)
+          valid_objects[binding] << resource
+        end
+      end
+    end
+  end
+
+  # Checks context rules for given resource
+  #  rules == { :res_type1 => [:action1, ...], ... }
+  def evaluate_context_rules(rules, res_type, res) # :nodoc:
+    evaluate_rules(rules[res_type], res_type, res)
+  end
+
+  # Checks if actions on resource are allowed. If true, adds to valid objects.
+  # Returns true
+  #  actions == [:action1, ...]
+  #  valid_objects == { :action1 => [object1, ...], ... }
+  def evaluate_rules(actions, res_type, resource) # :nodoc:
+    valid_objects = @valid_objects[res_type]
+    actions.each do |action|
+      unless valid_objects[action].index(resource)
+        __apply_rule(action, res_type, resource)
+        valid_objects[action] << resource
+      end
+    end
+    true
+  end
+
+  # Usage:
+  #  __allowed? :show, :assignment, an_assignment
+  def __allowed?(action, res_type, resource=nil) # :nodoc:
+
+    block = lambda do
+      if resource
+        policy(res_type).allowed?(action, resource)
+      else
+        policy(res_type).static_policy.allowed?(action, nil)
+      end
+    end
+
+    returning block.call do |r|
+      log_access_check r, action, res_type, resource
+    end
+  end
+
+  # Raises a SecurityViolationError if the rule defined by +policy_args+ is not
+  # allowed. See __allowed? for details.
+  #
+  def __apply_rule(*args) # :nodoc:
+    self.class.raise_access_denied(*args) unless __allowed?(*args)
+  end
+
+  #=============================================================================
+  # Singleton
+
+  def self.security_methods
+    instance_methods(false)
+  end
+
+  # create singleton methods
+  security_methods.each do |method|
+    if method.to_s.ends_with? '='
+      # setters need a different handling
+      class_eval %{
+        def self.#{method}(value)
+          current.#{method} value
+        end }
+    else
+      class_eval %{
+        def self.#{method}(*args,&proc)
+          current.#{method}(*args,&proc)
+        end }
+    end
+  end  
 end

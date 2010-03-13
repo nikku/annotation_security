@@ -1,6 +1,8 @@
 #
-# = lib/security/rule.rb
+# = lib/annotation_security/policy/rule.rb
 #
+
+# = AnnotationSecurity::Rule
 # A right or a relation that belongs to a policy.
 #
 # Rules can be static or dynamic or both.
@@ -64,7 +66,7 @@ class AnnotationSecurity::Rule # :nodoc:
     @dynamic
   end
 
-  def requires_user? # :nodoc:
+  def requires_credential? # :nodoc:
     return @req_user unless @req_user.nil?
     lazy_initialize
     @req_user
@@ -79,7 +81,7 @@ class AnnotationSecurity::Rule # :nodoc:
     # * +role+ symbol identifying the role a user must have (or nil)
     # * +user_required+ if false, the rule will also be
     #                   evaluated if the user is nil
-    user_args = "#{@as ? ":#@as" : 'nil'},#{requires_user?}"
+    user_args = "#{@as ? ":#@as" : 'nil'},#{requires_credential?}"
 
     # Actual logic of the rule
     rule_code = @proc ? code_for_proc : code_for_string
@@ -168,7 +170,7 @@ class AnnotationSecurity::Rule # :nodoc:
     return if hash.blank?
     @as = hash.delete(:as)
     @is = hash.delete(:is)
-    @req_user = hash.delete(:require_user)
+    @req_user = hash.delete(:require_credential)
     @req_user = true if @req_user.nil? && !right?
     if (@as || @is) && !@req_user
       raise ArgumentError, "Options :as and :is always require a user!"
@@ -179,7 +181,7 @@ class AnnotationSecurity::Rule # :nodoc:
   end
 
   def options
-    {:is => @is, :as => @as, :require_user => (right? ? nil : requires_user?)}
+    {:is => @is, :as => @as, :require_credential => (right? ? nil : requires_credential?)}
   end
 
   # Check for the optional parameter :as => :role
@@ -212,12 +214,12 @@ class AnnotationSecurity::Rule # :nodoc:
         @static = true   # a right is static if it uses only static rules
         @dynamic = false # a right is dynamic if it uses at least one dynamic rule
         @req_user = false # unless at least one rule requires a user
-        @condition.split.each do |token|
+        @condition.gsub(/\(|\)/,' ').split.each do |token|
           unless token =~ /\A(if|unless|or|and|not|true|false|nil)\Z/
             token = validate_token!(token)
-            @static &&= can_be_static?(token)
-            @dynamic ||= can_be_dynamic?(token)
-            @req_user ||= needs_user?(token)
+            @static &= can_be_static?(token)
+            @dynamic |= can_be_dynamic?(token)
+            @req_user |= needs_user?(token)
           end
         end
       end
@@ -242,7 +244,7 @@ class AnnotationSecurity::Rule # :nodoc:
   end
 
   def needs_user?(token)
-    @policy_class.get_rule(token).requires_user?
+    @policy_class.get_rule(token).requires_credential?
   end
 
   def raise_evil_recursion
@@ -315,7 +317,7 @@ class AnnotationSecurity::Rule # :nodoc:
 
   # Apply replacements for 'may: property' notation
   def apply_may_property_notation(condition)
-    rx_may_prop = /(\S*):\s*(\S*)/
+    rx_may_prop = /(\S+):\s*(\S+)/
     condition.gsub!(rx_may_prop) do |match|
       right, resource = match.scan(rx_may_prop).first
       res_class, right = parse_right(right)

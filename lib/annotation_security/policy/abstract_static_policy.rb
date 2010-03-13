@@ -1,8 +1,8 @@
 #
-# = lib/security/abstract_static_policy.rb
+# = lib/annotation_security/policy/abstract_static_policy.rb
 #
-# Abstract superclass for all static policies
-#
+
+# Abstract superclass for all static policies.
 # For each policy there is a static policy that is responsible for evaluating
 # static rules.
 #
@@ -65,7 +65,7 @@ class AnnotationSecurity::AbstractStaticPolicy < AnnotationSecurity::AbstractPol
 
   # Evaluate a rule that is defined with a proc
   # * +symbol+ Name of the rule
-  # * +user+ AnnotationSecurity::UserWrapper object that has to fulfill the rule
+  # * +user+ user object that has to fulfill the rule
   # * +args+ List of additional arguments
   def evaluate_rule(rule,user,args) #:nodoc:
     # In contrast to AbstractPolicy#evaluate_rule,

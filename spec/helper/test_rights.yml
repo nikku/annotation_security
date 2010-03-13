@@ -1,0 +1,5 @@
+test_resource:
+  show: if logged_in
+  edit: if owner
+  delete: if may_edit
+  list: if owner
