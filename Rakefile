@@ -1,20 +1,22 @@
-# 
-# To change this template, choose Tools | Templates
-# and open the template in the editor.
- 
-
 require 'rubygems'
+require 'rubygems/package_task'
+
 require 'rake'
 require 'rake/clean'
-require 'rake/gempackagetask'
-require 'rake/rdoctask'
-require 'spec/rake/spectask'
+
+require 'rdoc/task'
+
+require 'rspec/core/rake_task'
+
+module RakeFileUtils
+  extend Rake::FileUtilsExt
+end
 
 spec = Gem::Specification.new do |s|
   s.name = 'annotation_security'
-  s.version = '1.0.1'
+  s.version = '1.0.2'
   s.has_rdoc = true
-  s.extra_rdoc_files = ['README', 'MIT-LICENSE', 'CHANGELOG', 'HOW-TO']
+  s.extra_rdoc_files = ['README.md', 'LICENSE', 'CHANGELOG.md', 'HOW-TO.md']
   s.summary = 'A role based security model for rails applications with ' +
               'descriptive definitions and automated evaluation.'
   s.description =
@@ -25,32 +27,35 @@ spec = Gem::Specification.new do |s|
     'example.'
   s.author = 'Nico Rehwaldt, Arian Treffer'
   s.email = 'ruby@nixis.de'
-  s.homepage = 'http://tech.lefedt.de/2010/3/annotation-based-security-for-rails'
+  s.homepage = 'http://github.com/Nikku/annotation_security'
   s.add_dependency 'action_annotation', '>= 1.0.1'
-  s.add_dependency 'activesupport', '>= 2.3.5'
-  s.add_development_dependency 'rspec', '>= 1.2.0'
+  s.add_dependency 'activesupport', '>= 2.3.18'
+  s.add_development_dependency 'rspec', '>= 1.3.2'
   s.add_development_dependency 'mocha', '>= 0.9.8'
   s.executables = ['annotation_security']
-  s.files = %w(CHANGELOG MIT-LICENSE README HOW-TO Rakefile) + Dir.glob("{bin,lib,spec,assets}/**/*")
+  s.files = %w(CHANGELOG.md LICENSE README.md HOW-TO.md Rakefile) + Dir.glob("{bin,lib,spec,assets}/**/*")
   s.require_path = "lib"
   s.bindir = "bin"
 end
 
-Rake::GemPackageTask.new(spec) do |p|
-  p.gem_spec = spec
-  p.need_tar = true
-  p.need_zip = true
-end
-
+desc "Create rdoc documentation"
 Rake::RDocTask.new do |rdoc|
-  files = ['README', 'MIT-LICENSE', 'CHANGELOG', 'HOW-TO', 'lib/**/*.rb']
+  files = ['README.md', 'LICENSE', 'CHANGELOG.md', 'HOW-TO.md', 'lib/**/*.rb']
   rdoc.rdoc_files.add(files)
-  rdoc.main = "README" # page to start on
+  rdoc.main = "README.md" # page to start on
   rdoc.title = "Annotation Security Docs"
   rdoc.rdoc_dir = 'doc' # rdoc output folder
   rdoc.options << '--line-numbers'
 end
 
-Spec::Rake::SpecTask.new do |t|
-  t.spec_files = FileList['spec/**/*_spec.rb']
+desc "Run rspec tests"
+RSpec::Core::RakeTask.new do |t|
+  t.rspec_opts = ["-c", "-f progress", "-r ./spec/spec_helper.rb"]
+  t.pattern = 'spec/**/*_spec.rb'
+end
+
+desc "Package library as gem"
+Gem::PackageTask.new(spec) do |pkg|
+  pkg.need_zip = true
+  pkg.need_tar = true
 end
