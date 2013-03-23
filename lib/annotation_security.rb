@@ -29,11 +29,12 @@ require dir + '/annotation_security/filters'
 require dir + '/annotation_security/model_observer'
 require dir + '/annotation_security/user_wrapper'
 require dir + '/annotation_security/utils'
+require dir + '/annotation_security/version'
 
 require dir + '/security_context'
 
 module AnnotationSecurity
-
+  
   # Load the file specified by +fname+.
   # The file will be reloaded automatically if reset is called.
   #
@@ -87,10 +88,15 @@ module AnnotationSecurity
   #
   # * +config+ [Rails::Configuration] the rails configuration.
   def self.init_rails(config)
-    puts "Initializing AnnotationSecurity security layer"
+    puts "Initializing AnnotationSecurity (#{AnnotationSecurity::Version}) security layer"
 
+    # must load the extension files after we know rails is loaded
+    # :o)
+    
+    dir = File.dirname(__FILE__)
+    
     %w{annotation_security/rails extensions/object extensions/action_controller
-       extensions/active_record extensions/filter }.each { |f| require f }
+       extensions/active_record extensions/filter }.each { |f| require "#{dir}/#{f}" }
     
     AnnotationSecurity::Rails.init!(config)
   end
