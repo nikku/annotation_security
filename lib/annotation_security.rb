@@ -85,14 +85,13 @@ module AnnotationSecurity
   # This method is called by `init.rb`,
   # which is run by Rails on startup.
   #
-  # * +binding+ [Binding] The context of the `init.rb` file.
-  def self.init_rails(binding)
+  # * +config+ [Rails::Configuration] the rails configuration.
+  def self.init_rails(config)
     puts "Initializing AnnotationSecurity security layer"
 
     %w{annotation_security/rails extensions/object extensions/action_controller
        extensions/active_record extensions/filter }.each { |f| require f }
     
-    config = eval("config", binding)
     AnnotationSecurity::Rails.init!(config)
   end
 end
