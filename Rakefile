@@ -8,13 +8,15 @@ require 'rdoc/task'
 
 require 'rspec/core/rake_task'
 
+require File.dirname(__FILE__) + '/lib/annotation_security/version'
+
 module RakeFileUtils
   extend Rake::FileUtilsExt
 end
 
 spec = Gem::Specification.new do |s|
   s.name = 'annotation_security'
-  s.version = '1.0.2'
+  s.version = AnnotationSecurity::Version
   s.has_rdoc = true
   s.extra_rdoc_files = ['README.md', 'LICENSE', 'CHANGELOG.md', 'HOW-TO.md']
   s.summary = 'A role based security model for rails applications with ' +

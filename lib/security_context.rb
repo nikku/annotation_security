@@ -49,7 +49,7 @@ class SecurityContext
     Thread.current[:security_context] = sec_context
   end
 
-  if RAILS_ENV == 'development'
+  if Rails.env == 'development'
     # Disables all security checkings.
     # Is only available in development mode.
     def self.ignore_security!
@@ -66,7 +66,7 @@ class SecurityContext
   #
   def initialize(controller) # :nodoc:
     super()
-    
+
     @controller = controller
 
     # initialize rule
@@ -112,7 +112,7 @@ class SecurityContext
   # Creates a copy of the current security context.
   # See #load for more information.
   def copy
-    returning self.class.new(@controller) { |sc| sc.credential = credential }
+    self.class.new(@controller).tap { |sc| sc.credential = credential }
   end
 
   # Will be set if an security exception was catched by the security filter
@@ -283,7 +283,7 @@ class SecurityContext
   def apply_param_rules # :nodoc:
     evaluate_bound_rules(@param_rules, @param_valid_objects)
   end
-    
+
   def apply_var_rules # :nodoc:
     evaluate_bound_rules(@var_rules, @var_valid_objects)
   end
@@ -334,17 +334,17 @@ class SecurityContext
       puts msg
     end
   end
-  
+
   def log_access_denied(policy_args) # :nodoc:
     @log.call('DENIED!', *policy_args) if @enable_logging
   end
 
   protected
-  
+
   def log_access_check(*policy_args)
     @log.call(*policy_args) if @enable_logging
   end
-  
+
   private
 
 # data =========================================================================
@@ -368,7 +368,7 @@ class SecurityContext
   def new_valid_objects_hash() # :nodoc:
     Hash.new { |h,k| h[k] = Hash.new { |h2,k2| h2[k2] = [] } }
   end
-  
+
   # {:res_type1 => policy1, ...}
   def new_policy_hash() # :nodoc:
     Hash.new { |h,k| h[k] = new_policy(k) }
@@ -514,7 +514,7 @@ class SecurityContext
       end
     end
 
-    returning block.call do |r|
+    block.call.tap do |r|
       log_access_check r, action, res_type, resource
     end
   end
@@ -530,22 +530,60 @@ class SecurityContext
   # Singleton
 
   def self.security_methods
-    instance_methods(false)
+    instance_methods(false).delete_if { |m| [:enabled?].member? m.to_sym }
+  end
+
+  #=============================================================================
+  # Without security block implementation
+
+  class SecurityContextDummy
+    attr_accessor :credential
+
+    def initialize(credential)
+      self.credential = credential
+    end
+
+    def method_missing(symbol, *args)
+      # puts "#{self.class}##{symbol}(#{args})"
+    end
+
+    def enabled?
+      false
+    end
+  end
+
+  public
+
+  def enabled?
+    true
+  end
+
+  # Runs a given block with security disabled. Inside the block, the context
+  # will be disabled for the current thread.
+  #
+  def self.without_security!(&block)
+    old_current = current
+
+    credential = old_current.credential if old_current
+    load SecurityContextDummy.new(credential)
+    return_value = yield
+    load old_current
+    return_value
   end
 
   # create singleton methods
   security_methods.each do |method|
-    if method.to_s.ends_with? '='
+    if method.to_s.end_with? '='
       # setters need a different handling
       class_eval %{
         def self.#{method}(value)
-          current.#{method} value
+          current.#{method}(value) if current
         end }
     else
       class_eval %{
         def self.#{method}(*args,&proc)
-          current.#{method}(*args,&proc)
+          current.#{method}(*args,&proc) if current
         end }
     end
-  end  
+  end
 end

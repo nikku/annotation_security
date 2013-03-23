@@ -27,7 +27,7 @@ module ActionController # :nodoc:
   module Filters # :nodoc:
     class FilterChain # :nodoc:
       def self.new(&block)
-        returning super do |filter_chain|
+        super.tap do |filter_chain|
           filter_chain.append_filter_to_chain([AnnotationSecurity::Filters::InitializeSecurity], :security, &block)
           filter_chain.append_filter_to_chain([AnnotationSecurity::Filters::ApplySecurity], :action_security, &block)
         end

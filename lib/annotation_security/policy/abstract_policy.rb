@@ -14,7 +14,7 @@ class AnnotationSecurity::AbstractPolicy
   # Creates a new policy class for a resource type.
   #
   def self.new_subclass(resource_type) #:nodoc:
-    returning Class.new(self) do |c|
+    Class.new(self).tap do |c|
       c.initialize(resource_type)
     end
   end
